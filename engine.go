@@ -293,6 +293,9 @@ func (e *Engine) Limit(order Order) OrderID {
 
 func (e *Engine) Cancel(orderID OrderID) {
 	e.bookEntries[orderID].size = 0
+	order := e.bookEntries[orderID]
+	rep := etf.Term(etf.Tuple{etf.Atom(order.trader), int(order.size)})
+	e.node.Send(nil, e.topid, &rep)
 }
 
 // Report trade execution.
@@ -336,7 +339,7 @@ func (e *Engine) Msss(exec Execution) {
 		fmt.Println("symbol ", exec.symbol, "trader ", exec.trader, "price ", exec.price, "size ", exec.size)
 	}
 	// rep := etf.Term(etf.Tuple{etf.Atom(exec.symbol), etf.Atom(exec.trader), exec.price, exec.size, exec.side})
-	rep := etf.Term(etf.Tuple{etf.Atom(exec.symbol), etf.Atom(exec.trader)})
+	rep := etf.Term(etf.Tuple{[]byte(exec.symbol), etf.Atom(exec.trader), int(exec.price), int(exec.size)})
 	e.node.Send(nil, e.topid, &rep)
 
 }
