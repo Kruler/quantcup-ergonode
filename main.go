@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"github.com/halturin/ergonode"
 	"github.com/halturin/ergonode/etf"
+	"github.com/thejerf/suture"
 )
 
 type goGenServ struct {
+	servername string
 	ergonode.GenServer
 	completeChan chan bool
 	e            Engine
+	iscomplete   bool
 }
 
 const (
@@ -17,37 +20,60 @@ const (
 	replayCount     = 200
 )
 
+var n *ergonode.Node
+
 func main() {
 	fmt.Println("start")
-	n := ergonode.Create("quantcup@localhost", 7000, "abc")
+	n = ergonode.Create("quantcup@localhost", 7000, "abc")
 
 	// Create channel to receive message when main process should be stopped
-	completeChan := make(chan bool)
 
 	// Initialize new instance of goGenServ structure which implements Process behaviour
 	gs := new(goGenServ)
+	gs.servername = "si1806"
+	gs2 := new(goGenServ)
+	gs2.servername = "si1805"
+	sup := suture.New("engine_supervisor", suture.Spec{})
+	sup.Add(gs)
+	sup.Add(gs2)
+	sup.Serve()
 
 	// Spawn process with one arguments
-	n.Spawn(gs, completeChan)
 
 	// Wait to stop
-	<-completeChan
 
 	return
 }
 
+func (gs *goGenServ) String() string {
+	return gs.servername
+}
+
+func (gs *goGenServ) Serve() {
+	fmt.Println("server start")
+	completeChan := make(chan bool)
+	n.Spawn(gs, completeChan)
+	<-completeChan
+}
+
+func (gs *goGenServ) Stop() {
+	message := etf.Term(etf.Atom("stop"))
+	gs.Cast(gs.Self, &message)
+}
+
+func (gs *goGenServ) Complete() bool {
+	return gs.iscomplete
+}
+
 func (gs *goGenServ) Init(args ...interface{}) interface{} {
 	// Self-registration with name go_srv
-	gs.Node.Register(etf.Atom("engine"), gs.Self)
 	gs.e.Reset()
-
+	gs.Node.Register(etf.Atom(gs.servername), gs.Self)
+	fmt.Println("loop exist", gs.servername)
 	// Store first argument as channel
 	gs.completeChan = args[0].(chan bool)
 
 	return nil
-}
-
-func init() {
 }
 
 // HandleCast serves incoming messages sending via gen_server:cast
@@ -61,7 +87,7 @@ func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int,
 		if len(req) == 3 {
 			switch act := req[0].(type) {
 			case etf.Atom:
-				if string(act) == "send" {
+				if string(act) == "submit" {
 					// var self_pid etf.Pid = gs.Self
 					var order Order
 					raworder := req[1].(etf.Tuple)
@@ -73,11 +99,16 @@ func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int,
 					if order.size == 0 {
 						return
 					}
-					gs.e.node = gs.Node
-					gs.e.topid = req[2].(etf.Pid)
-					gs.e.Limit(order)
-					rep := etf.Term(etf.Tuple{etf.Atom("submit sucess")})
-					gs.Send(req[2].(etf.Pid), &rep)
+					if order.symbol == gs.servername {
+						gs.e.node = gs.Node
+						gs.e.topid = req[2].(etf.Pid)
+						gs.e.Limit(order)
+						rep := etf.Term(etf.Tuple{etf.Atom("submit sucess")})
+						gs.Send(req[2].(etf.Pid), &rep)
+					} else {
+						rep := etf.Term(etf.Tuple{etf.Atom("invalid symbol"), gs.Self})
+						gs.Send(req[2].(etf.Pid), &rep)
+					}
 
 				}
 			}
@@ -85,6 +116,10 @@ func (gs *goGenServ) HandleCast(message *etf.Term, state interface{}) (code int,
 	case etf.Atom:
 		// If message is atom 'stop', we should say it to main process
 		if string(req) == "stop" {
+			gs.iscomplete = true
+			gs.completeChan <- true
+		}
+		if string(req) == "stop1" {
 			gs.completeChan <- true
 		}
 	}
