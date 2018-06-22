@@ -21,6 +21,7 @@ const (
 )
 
 var n *ergonode.Node
+var sup *suture.Supervisor
 
 func main() {
 	fmt.Println("start")
@@ -31,11 +32,11 @@ func main() {
 	// Initialize new instance of goGenServ structure which implements Process behaviour
 	gs := new(goGenServ)
 	gs.servername = "si1806"
-	gs2 := new(goGenServ)
-	gs2.servername = "si1805"
-	sup := suture.New("engine_supervisor", suture.Spec{})
+	// gs2 := new(goGenServ)
+	// gs2.servername = "si1805"
+	sup = suture.New("engine_supervisor", suture.Spec{})
 	sup.Add(gs)
-	sup.Add(gs2)
+	// sup.Add(gs2)
 	sup.Serve()
 
 	// Spawn process with one arguments
@@ -54,11 +55,11 @@ func (gs *goGenServ) Serve() {
 	completeChan := make(chan bool)
 	n.Spawn(gs, completeChan)
 	<-completeChan
+	fmt.Println("debug")
 }
 
 func (gs *goGenServ) Stop() {
-	message := etf.Term(etf.Atom("stop"))
-	gs.Cast(gs.Self, &message)
+	gs.completeChan <- true
 }
 
 func (gs *goGenServ) Complete() bool {
